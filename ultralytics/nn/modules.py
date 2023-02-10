@@ -360,7 +360,7 @@ class Proto(nn.Module):
 
 
 class Ensemble(nn.ModuleList):
-    # Ensemble of models
+    # Ensemble of models - initializes and returns empty module
     def __init__(self):
         super().__init__()
 

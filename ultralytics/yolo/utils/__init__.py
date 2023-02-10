@@ -26,7 +26,7 @@ import yaml
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[2]  # YOLO
 DEFAULT_CFG_PATH = ROOT / "yolo/cfg/default.yaml"
-RANK = int(os.getenv('RANK', -1))
+RANK = int(os.getenv('RANK', -1)) # os.getenv() method in Python returns the value of the environment variable key if it exists otherwise returns the default value. # RANK is an integer
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 AUTOINSTALL = str(os.getenv('YOLO_AUTOINSTALL', True)).lower() == 'true'  # global auto-install mode
 VERBOSE = str(os.getenv('YOLO_VERBOSE', True)).lower() == 'true'  # global verbose mode

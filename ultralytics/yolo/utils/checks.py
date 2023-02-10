@@ -216,7 +216,9 @@ def check_suffix(file='yolov8n.pt', suffix=('.pt',), msg=''):
         if isinstance(suffix, str):
             suffix = [suffix]
         for f in file if isinstance(file, (list, tuple)) else [file]:
+            #makes s equal to '.py' for example - takes the suffix off 
             s = Path(f).suffix.lower()  # file suffix
+            #if length is not empty ensure suffix of current data is of an acceptable suffix for model 
             if len(s):
                 assert s in suffix, f"{msg}{f} acceptable suffix is {suffix}"
 
@@ -236,9 +238,10 @@ def check_yolov5u_filename(file: str):
 
 def check_file(file, suffix=''):
     # Search/download file (if necessary) and return path
+    #ensures the file is correct 
     check_suffix(file, suffix)  # optional
-    file = str(file)  # convert to string
-    file = check_yolov5u_filename(file)  # yolov5n -> yolov5nu
+    file = str(file)  # convert to string from path
+    file = check_yolov5u_filename(file)  # yolov5n -> yolov5nu # ensuring that the file is correct format (has a u after n)
     if not file or ('://' not in file and Path(file).is_file()):  # exists ('://' check required in Windows Python<3.10)
         return file
     elif file.lower().startswith(('https://', 'http://', 'rtsp://', 'rtmp://')):  # download
@@ -247,7 +250,7 @@ def check_file(file, suffix=''):
         if Path(file).is_file():
             LOGGER.info(f'Found {url} locally at {file}')  # file already exists
         else:
-            downloads.safe_download(url=url, file=file, unzip=False)
+            downloads.safe_download(url=url, file=file, unzip=False) # downloads and returns unzipped
         return file
     else:  # search
         files = []

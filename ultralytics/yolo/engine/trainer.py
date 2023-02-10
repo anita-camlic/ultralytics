@@ -79,14 +79,25 @@ class BaseTrainer:
             cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
-        self.args = get_cfg(cfg, overrides)
-        self.device = select_device(self.args.device, self.args.batch)
-        self.check_resume()
-        self.console = LOGGER
-        self.validator = None
+        self.args = get_cfg(cfg, overrides) # THIS RETURNS A DICTIONARY OF CONFIGURATION FILES 
+        self.device = select_device(self.args.device, self.args.batch) 
+        # ACCESSING AND SENDING IN THE DEVICE AND BATCH - THESE CAN BE FOUND IN THE CONFIGURATION FILE AS ARGUMENTS; can be changed easily by accessing the configuration files 
+        # they are defined as:
+        # device: device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
+        # batch: 16  # number of images per batch (-1 for AutoBatch)
+        # select_device returns torch.device(arg), and ensures that you can distribute the batches over multiple devices if that is whats desired
+        self.check_resume() # Method to check if training should be resumed from a saved checkpoint. Only does anything if set to true
+        self.console = LOGGER # imported from __init___ of ultralytics/yolo/utils - its a constant 
+        #A Logger object is used to log messages for a specific system or application component. Loggers are normally named, using a hierarchical dot-separated namespace. Logger names can be arbitrary strings, but they should normally be based on the package name or class name of the logged component, such as java.net or javax.
+        
+        self.validator = None # self explanatory as well as the next one 
         self.model = None
+        
+        # RANK is an integer - the following code sets a seed for reproducibility
         init_seeds(self.args.seed + 1 + RANK, deterministic=self.args.deterministic)
 
+        
+        
         # Dirs
         project = self.args.project or Path(SETTINGS['runs_dir']) / self.args.task
         name = self.args.name or f"{self.args.mode}"
@@ -102,31 +113,58 @@ class BaseTrainer:
             yaml_save(self.save_dir / 'args.yaml', vars(self.args))  # save run args
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
 
-        self.batch_size = self.args.batch
-        self.epochs = self.args.epochs
+
+        self.batch_size = self.args.batch # sets batch size 
+        self.epochs = self.args.epochs # sets epochs
         self.start_epoch = 0
         if RANK == -1:
             print_args(vars(self.args))
 
         # Device
+        # amp is CUDA's Automatic Mixed Precision Package
+        # If the forward pass for a particular op has float16 inputs, the backward pass for that op will produce float16 gradients.
+        #Gradient values with small magnitudes may not be representable in float16. These values will flush to zero (“underflow”), so the update for the corresponding parameters will be lost.
+
+        #To prevent underflow, “gradient scaling” multiplies the network’s loss(es) by a scale factor and invokes a backward pass on the scaled loss(es). Gradients flowing backward through the network are then scaled by the same factor. In other words, gradient values have a larger magnitude, so they don’t flush to zero.
+
+        #Each parameter’s gradient (.grad attribute) should be unscaled before the optimizer updates the parameters, so the scale factor does not interfere with the learning rate.
         self.amp = self.device.type != 'cpu'
-        self.scaler = amp.GradScaler(enabled=self.amp)
+        self.scaler = amp.GradScaler(enabled=self.amp)  #Returns the state of the scaler as a dict. It contains five entries:
+
+#                                                             "scale" - a Python float containing the current scale
+
+#                                                             "growth_factor" - a Python float containing the current growth factor
+
+#                                                             "backoff_factor" - a Python float containing the current backoff factor
+
+#                                                             "growth_interval" - a Python int containing the current growth interval
+
+#                                                             "_growth_tracker" - a Python int containing the number of recent consecutive unskipped steps.
+
+#                                                             If this instance is not enabled, returns an empty dict.
+
+
+#                                                             If this instance is not enabled, returns an empty dict.
         if self.device.type == 'cpu':
             self.args.workers = 0  # faster CPU training as time dominated by inference, not dataloading
 
         # Model and Dataloaders.
-        self.model = self.args.model
+        # if resuming from previous checkpoint, this will be a path to that model, if not = None
+        self.model = self.args.model # either the path to a model OR None
+        
+        # Getting data loaded in 
         try:
             if self.args.task == 'classify':
                 self.data = check_cls_dataset(self.args.data)
             elif self.args.data.endswith(".yaml") or self.args.task in ('detect', 'segment'):
-                self.data = check_det_dataset(self.args.data)
+                self.data = check_det_dataset(self.args.data) # returns a data dictionary stored in self.data
                 if 'yaml_file' in self.data:
                     self.args.data = self.data['yaml_file']  # for validating 'yolo train data=url.zip' usage
         except Exception as e:
             raise FileNotFoundError(emojis(f"Dataset '{self.args.data}' error ❌ {e}")) from e
 
-        self.trainset, self.testset = self.get_dataset(self.data)
+        self.trainset, self.testset = self.get_dataset(self.data) # gets the datasets using get_dataset
+        # get_dataset: Get train, val path from data dict if it exists. Returns None if data format is not recognized.
         self.ema = None
 
         # Optimization utils init
@@ -146,6 +184,8 @@ class BaseTrainer:
         self.callbacks = defaultdict(list, callbacks.default_callbacks)  # add callbacks
         if RANK in {0, -1}:
             callbacks.add_integration_callbacks(self)
+            
+            ###DONE WITH BASETRAINER INIT
 
     def add_callback(self, event: str, callback):
         """
@@ -516,8 +556,20 @@ class BaseTrainer:
                     self.run_callbacks('on_fit_epoch_end')
 
     def check_resume(self):
-        resume = self.args.resume
-        if resume:
+        resume = self.args.resume # looks at the configuration dictionary and looks at the value of resume
+                                    # value is set to a path if a past checkpoint should be resumed, else: false
+                                    # Default is false 
+         
+        
+        # if resume is set to true, they try this scheme:
+        # 1. make sure that resume is a string or a path object
+        # 2. make sure that ALSO the path exists ---> if the path doesn't exist, get_latest_run() is ran to return/find the latest run 
+        
+        # If all is good, it reinstates the model, and updates the model configuration argument 'model', and sets resume 
+        # variable to true 
+        # returns nothing if all goes well
+        # returns an exception error if someting is wrong 
+        if resume: 
             try:
                 last = Path(
                     check_file(resume) if isinstance(resume, (str,
@@ -544,6 +596,7 @@ class BaseTrainer:
             assert start_epoch > 0, \
                 f'{self.args.model} training to {self.epochs} epochs is finished, nothing to resume.\n' \
                 f"Start a new training without --resume, i.e. 'yolo task=... mode=train model={self.args.model}'"
+            
             LOGGER.info(
                 f'Resuming training from {self.args.model} from epoch {start_epoch + 1} to {self.epochs} total epochs')
         if self.epochs < start_epoch:

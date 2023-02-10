@@ -347,7 +347,7 @@ def torch_safe_load(weight):
 
 def attempt_load_weights(weights, device=None, inplace=True, fuse=False):
     # Loads an ensemble of models weights=[a,b,c] or a single model weights=[a] or weights=a
-
+    # loads an ensemble to be populated
     ensemble = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
         ckpt = torch_safe_load(w)  # load ckpt
