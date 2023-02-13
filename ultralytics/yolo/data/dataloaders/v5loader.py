@@ -102,6 +102,7 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 
+    # returns data loader object and the dataset
 def create_dataloader(path,
                       imgsz,
                       batch_size,
@@ -470,32 +471,60 @@ class LoadImagesAndLabels(Dataset):
             for p in path if isinstance(path, list) else [path]:
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
+                    # the below line is looking for specific files, global files using regular expression patterns likw "."
+                    # it is forming a list of different files for anything that contains a period
                     f += glob.glob(str(p / '**' / '*.*'), recursive=True)
                     # f = list(p.rglob('*.*'))  # pathlib
                 elif p.is_file():  # file
+                    # doing the same thing as above except for files 
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
                         f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
                         # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
+                    # if the path is not a file OR a directory, an error message will be printed 
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
+                    
+            # If the suffixes of these image files are in the list of global acceptable formats (IMG_FORMATS), then we
+            # replace the seperator '/' with the seperator the operating system uses to seperate files in a path
+            # Then it sorts the files in alphabetical order 
             self.im_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
+            
+            # this is just asserting/making sure that self.im_files created the sorted files and they exist 
+            # Error raised if not
             assert self.im_files, f'{prefix}No images found'
         except Exception as e:
             raise FileNotFoundError(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
+            
+            
         # Check cache
+        # the following line of code calls a function that extracts the labels of the images and returns them in a list 
+        # then they are saved in label_files
         self.label_files = img2label_paths(self.im_files)  # labels
+        
+        #replaces all endings with.cache if not already there, saves them in cache_path 
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        
+        
         try:
+            # np.load() takes in a path and returns Data stored in the file. It returns it in a list like object, so int his case a dict.
+            # .item() makes a copy an element of an array to a standard Python scalar and return it.
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
+            
+            
+            # asserts that the data we have matches the data in the object
             assert cache['version'] == self.cache_version  # matches current version
             assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
+            
+            # if there is any type of error, sets the exists variable to false
         except (FileNotFoundError, AssertionError, AttributeError):
             cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
+            
+            
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in {-1, 0}:
@@ -505,20 +534,33 @@ class LoadImagesAndLabels(Dataset):
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
         assert nf > 0 or not augment, f'{prefix}No labels found in {cache_path}, can not start training. {HELP_URL}'
 
+        
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
+        
+        # number of labels - 0 in np.concatenate for among axis
         nl = len(np.concatenate(labels, 0))  # number of labels
         assert nl > 0 or not augment, f'{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}'
+        
+        # self.labels contains a list of all the labels for this data 
         self.labels = list(labels)
         self.shapes = np.array(shapes)
+        
+        #all the image files are stores in self.im_files
         self.im_files = list(cache.keys())  # update
+        
+        # the labels for each of the images are stored in label_files
         self.label_files = img2label_paths(cache.keys())  # update
 
         # Filter images
+        # min_items is the minimum number of images you want for each label ; you cannot have more but cannot have less
         if min_items:
+            # creating a list of labels that you can include
             include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
             LOGGER.info(f'{prefix}{n - len(include)}/{n} images filtered from dataset')
+            
+            # adding all the images and labels that should be included based on the min_items argument
             self.im_files = [self.im_files[i] for i in include]
             self.label_files = [self.label_files[i] for i in include]
             self.labels = [self.labels[i] for i in include]
@@ -533,7 +575,7 @@ class LoadImagesAndLabels(Dataset):
         self.n = n
         self.indices = range(n)
 
-        # Update labels
+        # Update labels - self explanatory
         include_class = []  # filter labels to include only these classes (optional)
         include_class_array = np.array(include_class).reshape(1, -1)
         for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
@@ -546,6 +588,7 @@ class LoadImagesAndLabels(Dataset):
                 self.labels[i][:, 0] = 0
 
         # Rectangular Training
+       
         if self.rect:
             # Sort by aspect ratio
             s = self.shapes  # wh

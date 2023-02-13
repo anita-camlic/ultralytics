@@ -19,11 +19,28 @@ from ultralytics.yolo.utils.torch_utils import de_parallel
 
 # BaseTrainer python usage
 class DetectionTrainer(BaseTrainer):
-
+    # This class extends the BaseTrainer class, which is just a boilerplate trainer class
+    
+    # When you create an instance of the DetectionTrainer class, it immediately calls the __init__ method for the BaseTrainer class
+    # The BaseTrainer class can be found in ultralytics.yolo.engine.trainer 
+    
+    # Calling the BaseTrainer init method wil instantiate a basetrainer object and set all of the attributes based on the 
+    # configuration yaml file found in ultralytics/yolo/cfg/default.yaml
+    
+    
+    
+    
+    # This is very helpful for understanding what is going on in the pytorch data loader: https://pytorch.org/docs/stable/data.html
+    # this method takes in the path to the dataset, the batch size, the mode and the rank
+    # This method returns a dataloader: 
     def get_dataloader(self, dataset_path, batch_size, mode="train", rank=0):
         # TODO: manage splits differently
         # calculate stride - check if model is initialized
+        
+        #  De-parallelize a model: returns single-GPU model if model is of type DP or DDP
+        # determines the stride
         gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
+        
         return create_dataloader(path=dataset_path,
                                  imgsz=self.args.imgsz,
                                  batch_size=batch_size,
