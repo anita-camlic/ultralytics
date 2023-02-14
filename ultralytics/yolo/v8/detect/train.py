@@ -59,7 +59,15 @@ class DetectionTrainer(BaseTrainer):
             build_dataloader(self.args, batch_size, img_path=dataset_path, stride=gs, rank=rank, mode=mode,
                              rect=mode == "val", names=self.data['names'])[0]
 
+    
     def preprocess_batch(self, batch):
+        
+        # method for Detection Trainer Instance 
+        # method to preprocess a batch for training 
+        # this method is moving the arrays of batched images to the device stored in self.device configuration file
+        # .to()Returns a Tensor with the specified dtype
+        # this method returns a dictionary like object of batches along with tensors of images that are a part of the batch 
+        
         batch["img"] = batch["img"].to(self.device, non_blocking=True).float() / 255
         return batch
 
@@ -218,18 +226,38 @@ class Loss:
 
 
 def train(cfg=DEFAULT_CFG, use_python=False):
+    
+    # two parameters sent in 
+    # cfg is the configuration cfg file you want to use for your model 
+    # use_python is a boolean that specifies if python should be used or not 
+    
+    # setting model equal to path to model file if it exists OR the string "yolov8n.pt"
     model = cfg.model or "yolov8n.pt"
+    
+    # setting data to the path to data file if it exists OR  "coco128.yaml" , the coco dataset 
     data = cfg.data or "coco128.yaml"  # or yolo.ClassificationDataset("mnist")
+    
+    # setting device to device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu if it exists, else ' '
     device = cfg.device if cfg.device is not None else ''
 
+    
+    #creating a dictionary where the keys are [model, data, device] and the values are the strings saved in those variables
     args = dict(model=model, data=data, device=device)
+    
+    # if statement to see if the user is using python or CLI
     if use_python:
         from ultralytics import YOLO
+        
         YOLO(model).train(**args)
+        
+        
     else:
         trainer = DetectionTrainer(overrides=args)
         trainer.train()
 
 
 if __name__ == "__main__":
+    
+    # here is where all the calls start
+    # train is called 
     train()

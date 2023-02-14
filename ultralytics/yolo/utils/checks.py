@@ -255,12 +255,12 @@ def check_file(file, suffix=''):
     else:  # search
         files = []
         for d in 'models', 'yolo/data':  # search directories
-            files.extend(glob.glob(str(ROOT / d / '**' / file), recursive=True))  # find file
+            files.extend(glob.glob(str(ROOT / d / '**' / file), recursive=True))  # find file & extend or add to files list
         if not files:
             raise FileNotFoundError(f"'{file}' does not exist")
         elif len(files) > 1:
             raise FileNotFoundError(f"Multiple files match '{file}', specify exact path: {files}")
-        return files[0]  # return file
+        return files[0]  # return file as string
 
 
 def check_yaml(file, suffix=('.yaml', '.yml')):

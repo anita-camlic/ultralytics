@@ -41,30 +41,73 @@ class YOLO:
             model (str, Path): model to load or create
             type (str): Type/version of models to use. Defaults to "v8".
         """
+        
+        # version of model to use 
         self.type = type
+        
+        # classes used
         self.ModelClass = None  # model class
         self.TrainerClass = None  # trainer class
         self.ValidatorClass = None  # validator class
         self.PredictorClass = None  # predictor class
+        
+        # type of predictor to use 
         self.predictor = None  # reuse predictor
+        
+        # model and trainer objects to be used 
         self.model = None  # model object
         self.trainer = None  # trainer object
+        
+        # task type [ Detection, Segmentation, Classification ]
         self.task = None  # task type
+        
+        #ckpt means checkpoint pytorch & .py is pytorch file
         self.ckpt = None  # if loaded from *.pt
+        
+        # configuration file // .yaml format
         self.cfg = None  # if loaded from *.yaml
+        
+        # path to the latest checkpoint
         self.ckpt_path = None
+        
+        # overrides for the trainer object 
         self.overrides = {}  # overrides for trainer object
+        
+        
 
         # Load or create new YOLO model
+        
+        # creates a dictionary names load_methods
+        # inside the dictionary are two key value pairs 
+        
+        # the first key is '.pt' which is the pytorch file ending 
+        # this key maps to self._load which is not currently defined, but it is a method inside this class
+        
+        # the second key is '.yaml' which is the configuration file ending 
+        # this key maps to self._new which is not currently defined, but is a method inside this class
         load_methods = {'.pt': self._load, '.yaml': self._new}
+        
+        # makes the model string a path object, then extracts the suffix (the file type) from it
+        # stored in the suffix variable (string)
         suffix = Path(model).suffix
+        
+        
+        # depending on the suffix of the path/str stored in model, different methods are called
+        
+        # if the model ends in a pytorch file type ('.pt'): ._load(model) is called on the YOLO object - this creates a new model
+        # if the model ends in a yaml file: ._new(model) is called on the YOLO object - this creates a new model
+    
         if suffix in load_methods:
             {'.pt': self._load, '.yaml': self._new}[suffix](model)
         else:
             raise NotImplementedError(f"'{suffix}' model loading not implemented")
+            
+            
 
     def __call__(self, source=None, stream=False, **kwargs):
         return self.predict(source, stream, **kwargs)
+    
+    
 
     def _new(self, cfg: str, verbose=True):
         """
@@ -74,7 +117,7 @@ class YOLO:
             cfg (str): model configuration file
             verbose (bool): display model info on load
         """
-        cfg = check_yaml(cfg)  # check YAML
+        cfg = check_yaml(cfg)  # check YAML - this returns a file path in a string format - ended here
         cfg_dict = yaml_load(cfg, append_filename=True)  # model dict
         self.task = guess_model_task(cfg_dict)
         self.ModelClass, self.TrainerClass, self.ValidatorClass, self.PredictorClass = \
