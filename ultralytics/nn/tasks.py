@@ -414,16 +414,25 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
 
 def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     # Parse a YOLO model.yaml dictionary
+    
+    # d is the model dictionary  can be found in ultralytics/models/v8/yolov8n.yaml
+    
+    #if verbose == true, then we are going to log everything we are doing
     if verbose:
         LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
+        
+    
+    # here we are defining the number of classes the depth and width multiples and the activation  ultralytics/models/v8/yolov8n.yaml
     nc, gd, gw, act = d['nc'], d['depth_multiple'], d['width_multiple'], d.get('activation')
     if act:
         Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
         if verbose:
             LOGGER.info(f"{colorstr('activation:')} {act}")  # print
-    ch = [ch]
+    ch = [ch] # ch = [3]
+    
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
+    
+    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number repeats, module, args
         m = eval(m) if isinstance(m, str) else m  # eval strings
         for j, a in enumerate(args):
             with contextlib.suppress(NameError):
@@ -451,7 +460,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 args[2] = make_divisible(args[2] * gw, 8)
         else:
             c2 = ch[f]
-
+            
+        # building up the network
+        # torch.nn.Sequential
+        
         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         m.np = sum(x.numel() for x in m_.parameters())  # number params

@@ -117,12 +117,34 @@ class YOLO:
             cfg (str): model configuration file
             verbose (bool): display model info on load
         """
-        cfg = check_yaml(cfg)  # check YAML - this returns a file path in a string format - ended here
+        cfg = check_yaml(cfg)  # check YAML - this returns a file path in a string format - ended here 2/14
+        
+        ## yaml_load - Load YAML data from a file. RETURNS: dict: YAML data and file name.
         cfg_dict = yaml_load(cfg, append_filename=True)  # model dict
-        self.task = guess_model_task(cfg_dict)
+        
+        # guess model task - Guess the task of a PyTorch model from its architecture or configuration.
+        # takes in model (nn.Module) or (dict): PyTorch model or model configuration in YAML format. CONFIGURATION FILE IN THIS CASE
+        # RETURNS str: Task of the model ('detect', 'segment', 'classify').
+        # SyntaxError: If the task of the model could not be determined.
+        self.task = guess_model_task(cfg_dict) #self.task is a string, in this case it is 'detect'
+        
+        #_assign_ops_from_task should be in this class, sends in self.task which is 'detect' in this case
+        # _assign_ops_from_task returns the classes to use fpr training, validating and predicting
+        
+        # self.ModelClass      -> ClassificationModel
+        # self.TrainerClass    -> yolo.v8.classify.ClassificationTrainer
+        # self.ValidatorClass  -> yolo.v8.classify.ClassificationValidator
+        # self.PredictorClass  -> yolo.v8.classify.ClassificationPredictor
         self.ModelClass, self.TrainerClass, self.ValidatorClass, self.PredictorClass = \
             self._assign_ops_from_task(self.task)
-        self.model = self.ModelClass(cfg_dict, verbose=verbose)  # initialize
+        
+        # here we initialize the model 
+        # self.ModelClass(cfg_dict, verbose=verbose) is equal to ClassificationModel(cfg_dict,verbose=verbose)
+        # this call returns an object of ClassificationModel class
+        # ultralytics.nn.tasks.ClassificationModel(cfg_dict,verbose=verbose)
+        self.model = self.ModelClass(cfg_dict, verbose=verbose)  # initialize w parameters  # yaml, model, channels, number of classes, cutoff index, verbose flag
+        
+        #saves off the configuration file 
         self.cfg = cfg
 
     def _load(self, weights: str):
@@ -239,22 +261,40 @@ class YOLO:
         Args:
             **kwargs (Any): Any number of arguments representing the training configuration.
         """
+        # makes a copy of the overrides dictionary 
         overrides = self.overrides.copy()
+        # update is performed on dictionary, and it is sent in a dictionary
+        # if the key already exists, it replaces the value, else it adds a key and value 
         overrides.update(kwargs)
+        
+        # if the keyword arguments have a new cfg file, update logger, update cfg 
         if kwargs.get("cfg"):
             LOGGER.info(f"cfg file passed. Overriding default params with {kwargs['cfg']}.")
             overrides = yaml_load(check_yaml(kwargs["cfg"]), append_filename=True)
+            
+        # adding the task and mode to overrides dictionary 
         overrides["task"] = self.task
         overrides["mode"] = "train"
+        
+        # if no data was passed, raise an error
         if not overrides.get("data"):
             raise AttributeError("Dataset required but missing, i.e. pass 'data=coco128.yaml'")
+        
+        # if overrides contains a resume key, this means we want to pick up from an old checkpoint
         if overrides.get("resume"):
             overrides["resume"] = self.ckpt_path
-
-        self.trainer = self.TrainerClass(overrides=overrides)
+            
+        
+        # any arguments in the overrides file are integrated into the configuration file
+        self.trainer = self.TrainerClass(overrides=overrides) # updates the trainer with new configuration file with overrides
+        
         if not overrides.get("resume"):  # manually set model only if not resuming
             self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
             self.model = self.trainer.model
+        
+        # self.trainer points to a BaseTrainer object found in ultralytics/yolo/engine/trainer.py
+        # this training call calls the BaseTrainer train method ## ended here 2/15
+        
         self.trainer.train()
         # update model and cfg after training
         if RANK in {0, -1}:
@@ -271,11 +311,29 @@ class YOLO:
         self.model.to(device)
 
     def _assign_ops_from_task(self, task):
-        model_class, train_lit, val_lit, pred_lit = MODEL_MAP[task]
+        #"classify": [
+        # ClassificationModel, 
+        # 'yolo.TYPE.classify.ClassificationTrainer', 
+        # 'yolo.TYPE.classify.ClassificationValidator',
+        # 'yolo.TYPE.classify.ClassificationPredictor'
+        #]
+        
+        model_class, train_lit, val_lit, pred_lit = MODEL_MAP[task] 
+        
         # warning: eval is unsafe. Use with caution
+        # replace TYPE with version number
+        # example: 'yolo.TYPE.classify.ClassificationTrainer' -> 'yolo.v8.classify.ClassificationTrainer'
+        # then it performs eval() on it which will actually call whatever is inside the method call
+        # for example it will call yolo.v8.classify.ClassificationTrainer
+        # So, it is saving the correct classes in the class variables, then returning them for use 
         trainer_class = eval(train_lit.replace("TYPE", f"{self.type}"))
         validator_class = eval(val_lit.replace("TYPE", f"{self.type}"))
         predictor_class = eval(pred_lit.replace("TYPE", f"{self.type}"))
+        
+        # so now these variables are pointing to these classes:
+        # trainer_class -> yolo.v8.classify.ClassificationTrainer
+        # validator_class -> yolo.v8.classify.ClassificationValidator
+        # predictor_class  -> yolo.v8.classify.ClassificationPredictor
 
         return model_class, trainer_class, validator_class, predictor_class
 
