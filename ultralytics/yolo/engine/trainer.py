@@ -236,16 +236,30 @@ class BaseTrainer:
         """
         Builds dataloaders and optimizer on correct rank process.
         """
+        #2/16 
+        
         # model
+        # runs callbacks
         self.run_callbacks("on_pretrain_routine_start")
+        
+        # creates a checkpoint and makes sure that there is a model in self.model
         ckpt = self.setup_model()
+        
+        #moving devices - not important for current understanding
         self.model = self.model.to(self.device)
+        
+        # To set or update model parameters before training.
         self.set_model_attributes()
+        
+        # this splits the model up into multiple devices
         if world_size > 1:
             self.model = DDP(self.model, device_ids=[rank])
+            
+            
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, 'stride') else 32), 32)  # grid size (max stride)
         self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
+        
         # Batch size
         if self.batch_size == -1:
             if RANK == -1:  # single-GPU only, estimate best batch size
@@ -255,6 +269,7 @@ class BaseTrainer:
                             'Please pass a valid batch size value for Multi-GPU DDP training, i.e. batch=16')
 
         # Optimizer
+        # build_optimizer returns an optimizer and stores it in self.optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
         self.args.weight_decay *= self.batch_size * self.accumulate / self.args.nbs  # scale weight_decay
         self.optimizer = self.build_optimizer(model=self.model,
@@ -262,7 +277,10 @@ class BaseTrainer:
                                               lr=self.args.lr0,
                                               momentum=self.args.momentum,
                                               decay=self.args.weight_decay)
+        
         # Scheduler
+        # Constant learning rate: as the name suggests, we initialize a learning rate and don’t change it during training; 
+        # Learning rate decay: we select an initial learning rate, then gradually reduce it in accordance with a scheduler. 
         if self.args.cos_lr:
             self.lf = one_cycle(1, self.args.lrf, self.epochs)  # cosine 1->hyp['lrf']
         else:
@@ -270,7 +288,7 @@ class BaseTrainer:
         self.scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
         self.scheduler.last_epoch = self.start_epoch - 1  # do not move
         self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
-
+        
         # dataloaders
         batch_size = self.batch_size // world_size if world_size > 1 else self.batch_size
         self.train_loader = self.get_dataloader(self.trainset, batch_size=batch_size, rank=rank, mode="train")
@@ -280,36 +298,59 @@ class BaseTrainer:
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix="val")
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))  # TODO: init metrics for plot_results()?
             self.ema = ModelEMA(self.model)
+        
         self.resume_training(ckpt)
         self.run_callbacks("on_pretrain_routine_end")
 
     def _do_train(self, rank=-1, world_size=1):
         if world_size > 1:
             self._setup_ddp(rank, world_size)
-
+            
+        # 2/16 _setup_train() is above this function Builds dataloaders and optimizer on correct rank process.
         self._setup_train(rank, world_size)
-
+    
+        # clears time for new epoch run
         self.epoch_time = None
+        
+        #  storing the start time of these operations per epoch and for training
         self.epoch_time_start = time.time()
         self.train_time_start = time.time()
+        
+        # setting nb: number of batches and nw: number of warmup batches
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100)  # number of warmup iterations
         last_opt_step = -1
         self.run_callbacks("on_train_start")
+        
+        # logging what is going on
         self.log(f"Image sizes {self.args.imgsz} train, {self.args.imgsz} val\n"
                  f'Using {self.train_loader.num_workers * (world_size or 1)} dataloader workers\n'
                  f"Logging results to {colorstr('bold', self.save_dir)}\n"
                  f"Starting training for {self.epochs} epochs...")
+        
+        # if close_mosaic exists, subtract it from the number of epochs and then multiply it by the number of batches 
         if self.args.close_mosaic:
             base_idx = (self.epochs - self.args.close_mosaic) * nb
-            self.plot_idx.extend([base_idx, base_idx + 1, base_idx + 2])
+            self.plot_idx.extend([base_idx, base_idx + 1, base_idx + 2]) # not sure what this is doing to be honest 
+        
+        # REMINDER:
+        # The batch size is a number of samples processed before the model is updated.
+        # The number of epochs is the number of complete passes through the training dataset.
+        # for each epoch 
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
             self.run_callbacks("on_train_epoch_start")
+            
+            # this trains the model
             self.model.train()
+            
             if rank != -1:
                 self.train_loader.sampler.set_epoch(epoch)
+                
+            # progress bar    
             pbar = enumerate(self.train_loader)
+            
+            # turning of mosaic augmentation if the epoch is at the epoch it needs to stop at 
             # Update dataloader attributes (optional)
             if epoch == (self.epochs - self.args.close_mosaic):
                 self.console.info("Closing dataloader mosaic")
@@ -321,12 +362,24 @@ class BaseTrainer:
             if rank in {-1, 0}:
                 self.console.info(self.progress_string())
                 pbar = tqdm(enumerate(self.train_loader), total=nb, bar_format=TQDM_BAR_FORMAT)
+                
+
+            # initialize and clear out the value of loss (tloss = total loss)
             self.tloss = None
+            
+            
+           # self.optimizer is an instance of the optimizer class found in torch.optim.Optimizer
+           # zero_grad() method not a part of this repo - it was imported from pytorch 
+           # zero_grad: sets all the gradients of tensor torch objects to 0
             self.optimizer.zero_grad()
+            
+            
             for i, batch in pbar:
                 self.run_callbacks("on_train_batch_start")
                 # Warmup
                 ni = i + nb * epoch
+                # nw =  number of warmup batches
+                # GUESS ni = number of iterations
                 if ni <= nw:
                     xi = [0, nw]  # x interp
                     self.accumulate = max(1, np.interp(ni, xi, [1, self.args.nbs / self.batch_size]).round())
@@ -389,12 +442,14 @@ class BaseTrainer:
                 if self.args.save or (epoch + 1 == self.epochs):
                     self.save_model()
                     self.run_callbacks('on_model_save')
-
+                    
+            # recording the time it took for the epoch
             tnow = time.time()
             self.epoch_time = tnow - self.epoch_time_start
             self.epoch_time_start = tnow
             self.run_callbacks("on_fit_epoch_end")
 
+            
             # Early Stopping
             if RANK != -1:  # if DDP training
                 broadcast_list = [self.stop if RANK == 0 else None]

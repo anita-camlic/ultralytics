@@ -296,6 +296,7 @@ class YOLO:
         # this training call calls the BaseTrainer train method ## ended here 2/15
         
         self.trainer.train()
+        
         # update model and cfg after training
         if RANK in {0, -1}:
             self.model, _ = attempt_load_one_weight(str(self.trainer.best))
